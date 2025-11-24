@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Bot Manager</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background-color: #f0f2f5; }
+        .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #075e54; text-align: center; }
+        .status-box { text-align: center; margin-bottom: 20px; }
+        #qr-code { margin: 20px auto; display: block; max-width: 256px; }
+        .logs { background: #333; color: #0f0; padding: 15px; border-radius: 5px; height: 300px; overflow-y: auto; font-family: monospace; }
+        .log-entry { margin: 5px 0; border-bottom: 1px solid #444; }
+        .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: red; margin-right: 5px; }
+        .connected { background: #25d366; }
+        .btn-danger { background-color: #dc3545; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-top: 10px; }
+        .btn-danger:hover { background-color: #c82333; }
+        .btn-success { background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-top: 10px; margin-right: 10px; }
+        .btn-success:hover { background-color: #218838; }
+        .gallery { margin-top: 20px; }
+        .folder-group { margin-bottom: 20px; border: 1px solid #ddd; padding: 10px; border-radius: 5px; }
+        .folder-title { font-weight: bold; margin-bottom: 10px; background: #eee; padding: 5px; }
+        .image-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+        .image-grid img { width: 100px; height: 100px; object-fit: cover; border-radius: 4px; border: 1px solid #ccc; }
+        .refresh-btn { background-color: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 0.8em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 WhatsApp Bot Panel</h1>
+        
+        <div class="status-box">
+            <button onclick="startBot()" class="btn-success">▶️ Iniciar Bot</button>
+            <button onclick="deleteAuth()" class="btn-danger">🗑️ Borrar Sesión (Auth)</button>
+            <br>
+            <p>Estado: <span id="status-dot" class="status-indicator"></span> <span id="status-text">Desconectado</span></p>
+            <img id="qr-code" src="" alt="Esperando QR..." style="display: none;">
+        </div>
+
+        <h3>📜 Logs del Sistema</h3>
+        <div class="logs" id="logs"></div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 30px;">
+            <h3>📂 Galería de Imágenes</h3>
+            <button onclick="loadImages()" class="refresh-btn">🔄 Actualizar</button>
+        </div>
+        <div id="gallery" class="gallery"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const logsDiv = document.getElementById('logs');
+        const qrImg = document.getElementById('qr-code');
+        const statusText = document.getElementById('status-text');
+        const statusDot = document.getElementById('status-dot');
+        const galleryDiv = document.getElementById('gallery');
+
+        async function startBot() {
+            try {
+                const res = await fetch('/api/start-bot', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    addLog('🚀 Iniciando bot...');
+                } else {
+                    addLog(`⚠️ ${data.message}`);
+                }
+            } catch (e) {
+                addLog('❌ Error al intentar iniciar el bot');
+            }
+        }
+
+        async function deleteAuth() {
+            if (!confirm('¿Estás seguro de que quieres borrar la sesión? Tendrás que escanear el QR de nuevo.')) return;
+            try {
+                const res = await fetch('/api/delete-auth', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Sesión borrada. Por favor reinicia el bot manualmente si no se reinicia solo.');
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (e) {
+                alert('Error de conexión');
+            }
+        }
+
+        async function loadImages() {
+            try {
+                const res = await fetch('/api/images');
+                const folders = await res.json();
+                galleryDiv.innerHTML = '';
+                
+                if (folders.length === 0) {
+                    galleryDiv.innerHTML = '<p>No hay imágenes guardadas aún.</p>';
+                    return;
+                }
+
+                folders.forEach(folder => {
+                    const group = document.createElement('div');
+                    group.className = 'folder-group';
+                    
+                    const title = document.createElement('div');
+                    title.className = 'folder-title';
+                    title.textContent = `📁 ${folder.folder} (${folder.images.length})`;
+                    group.appendChild(title);
+
+                    const grid = document.createElement('div');
+                    grid.className = 'image-grid';
+                    
+                    folder.images.forEach(img => {
+                        const imgEl = document.createElement('img');
+                        imgEl.src = `/images/${folder.folder}/${img}`;
+                        imgEl.alt = img;
+                        imgEl.onclick = () => window.open(imgEl.src, '_blank');
+                        imgEl.style.cursor = 'pointer';
+                        imgEl.title = 'Clic para ver en grande';
+                        grid.appendChild(imgEl);
+                    });
+
+                    group.appendChild(grid);
+                    galleryDiv.appendChild(group);
+                });
+            } catch (e) {
+                console.error(e);
+                galleryDiv.innerHTML = '<p style="color:red">Error cargando imágenes</p>';
+            }
+        }
+
+        // Cargar imágenes al inicio
+        loadImages();
+
+        function addLog(msg) {
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logsDiv.appendChild(div);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        socket.on('qr', (qrDataURL) => {
+            qrImg.src = qrDataURL;
+            qrImg.style.display = 'block';
+            statusText.textContent = 'Escanea el código QR';
+            statusDot.className = 'status-indicator';
+            addLog('📲 Nuevo código QR recibido');
+        });
+
+        socket.on('connection-open', () => {
+            qrImg.style.display = 'none';
+            statusText.textContent = 'Conectado';
+            statusDot.className = 'status-indicator connected';
+            addLog('✅ Bot conectado a WhatsApp');
+        });
+
+        socket.on('connection-close', (reason) => {
+            statusText.textContent = 'Desconectado';
+            statusDot.className = 'status-indicator';
+            addLog(`❌ Conexión cerrada: ${reason}`);
+        });
+
+        socket.on('log', (msg) => {
+            addLog(msg);
+        });
+    </script>
+</body>
+</html>

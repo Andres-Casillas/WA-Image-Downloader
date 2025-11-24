@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Bot Manager</title>
+    <link rel="stylesheet" href="styles.css">
+
+</head>
+<body>
+    <h1>🤖 WhatsApp Bot Panel</h1>
+    <div class="layout">
+        <!-- PANEL IZQUIERDO -->
+        <div class="left-panel">
+            <div class="card status-box">
+                <button onclick="startBot()" class="btn-success">▶️ Iniciar Bot</button>
+                <button onclick="deleteAuth()" class="btn-danger">🗑️ Borrar Sesión</button>
+                <p style="margin-top:15px;">
+                    Estado: <span id="status-dot" class="status-indicator"></span>
+                    <span id="status-text">Desconectado</span>
+                </p>
+                <img id="qr-code" src="" alt="Esperando QR..." style="display:none;">
+            </div>
+            <div class="card">
+                <h3>📜 Logs</h3>
+                <div class="logs" id="logs"></div>
+            </div>
+        </div>
+        <!-- PANEL DERECHO (GALERÍA) -->
+        <div class="right-panel">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 >📂 Galería de Imágenes</h3>
+                <button onclick="loadImages()" class="refresh-btn">🔄 Actualizar</button>
+            </div>
+            <br>
+            <div id="gallery"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const logsDiv = document.getElementById('logs');
+        const qrImg = document.getElementById('qr-code');
+        const statusText = document.getElementById('status-text');
+        const statusDot = document.getElementById('status-dot');
+        const galleryDiv = document.getElementById('gallery');
+
+        async function startBot() {
+            try {
+                const res = await fetch('/api/start-bot', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    addLog('🚀 Iniciando bot...');
+                } else {
+                    addLog(`⚠️ ${data.message}`);
+                }
+            } catch (e) {
+                addLog('❌ Error al intentar iniciar el bot');
+            }
+        }
+
+        async function deleteAuth() {
+            if (!confirm('¿Estás seguro de que quieres borrar la sesión? Tendrás que escanear el QR de nuevo.')) return;
+            try {
+                const res = await fetch('/api/delete-auth', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Sesión borrada. Por favor reinicia el bot manualmente si no se reinicia solo.');
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (e) {
+                alert('Error de conexión');
+            }
+        }
+
+        async function loadImages() {
+            try {
+                const res = await fetch('/api/images');
+                const folders = await res.json();
+                galleryDiv.innerHTML = '';
+                
+                if (folders.length === 0) {
+                    galleryDiv.innerHTML = '<p>No hay imágenes guardadas aún.</p>';
+                    return;
+                }
+
+                folders.forEach(folder => {
+                    const group = document.createElement('div');
+                    group.className = 'folder-group';
+                    
+                    const title = document.createElement('div');
+                    title.className = 'folder-title';
+                    title.textContent = `📁 ${folder.folder} (${folder.images.length})`;
+                    group.appendChild(title);
+
+                    const grid = document.createElement('div');
+                    grid.className = 'image-grid';
+                    
+                    folder.images.forEach(img => {
+                        const imgEl = document.createElement('img');
+                        imgEl.src = `/images/${folder.folder}/${img}`;
+                        imgEl.alt = img;
+                        imgEl.onclick = () => window.open(imgEl.src, '_blank');
+                        imgEl.style.cursor = 'pointer';
+                        imgEl.title = 'Clic para ver en grande';
+                        grid.appendChild(imgEl);
+                    });
+
+                    group.appendChild(grid);
+                    galleryDiv.appendChild(group);
+                });
+            } catch (e) {
+                console.error(e);
+                galleryDiv.innerHTML = '<p style="color:red">Error cargando imágenes</p>';
+            }
+        }
+
+        // Cargar imágenes al inicio
+        loadImages();
+
+        function addLog(msg) {
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logsDiv.appendChild(div);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        socket.on('qr', (qrDataURL) => {
+            qrImg.src = qrDataURL;
+            qrImg.style.display = 'block';
+            statusText.textContent = 'Escanea el código QR';
+            statusDot.className = 'status-indicator';
+            addLog('📲 Nuevo código QR recibido');
+        });
+
+        socket.on('connection-open', () => {
+            qrImg.style.display = 'none';
+            statusText.textContent = 'Conectado';
+            statusDot.className = 'status-indicator connected';
+            addLog('✅ Bot conectado a WhatsApp');
+        });
+
+        socket.on('connection-close', (reason) => {
+            statusText.textContent = 'Desconectado';
+            statusDot.className = 'status-indicator';
+            addLog(`❌ Conexión cerrada: ${reason}`);
+        });
+
+        socket.on('log', (msg) => {
+            addLog(msg);
+        });
+    </script>
+</body>
+</html>
